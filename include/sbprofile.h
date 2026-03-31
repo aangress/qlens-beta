@@ -5,7 +5,7 @@
 #include "spline.h"
 #include "egrad.h"
 #include "lensvec.h"
-#include "profile.h"
+//#include "profile.h"
 //#include "GregsMathHdr.h"
 #include "mcmchdr.h"
 #include "simplex.h"
@@ -15,6 +15,7 @@
 #include <map>
 
 struct ImageData;
+template <typename Scalar>
 class LensProfile;
 class PointSource;
 class QLens;
@@ -24,17 +25,17 @@ enum SB_ProfileName { SB_SPLINE, GAUSSIAN, SERSIC, CORE_SERSIC, CORED_SERSIC, DO
 class SB_Profile : public EllipticityGradient, private UCMC, private Simplex
 {
 	friend class QLens;
-	friend class LensProfile;
+	friend class LensProfile<double>;
 	friend class SersicLens;
 	friend class DoubleSersicLens;
 	friend class Cored_SersicLens;
-	friend SPLE_Lens;
-	friend dPIE_Lens;
+	friend class SPLE_Lens;
+	friend class dPIE_Lens;
 	friend class NFW;
 	friend class ImagePixelGrid;
 	friend struct ImageData;
 	private:
-	Spline<double> sb_spline;
+	Spline sb_spline;
 	double sb_splint(double);
 	double qx_parameter, f_parameter;
 
@@ -114,7 +115,7 @@ class SB_Profile : public EllipticityGradient, private UCMC, private Simplex
 	bool is_lensed; // Can be a lensed source, or a galaxy in the lens plane
 	bool zoom_subgridding; // Useful if pixels are large compared to profile--subgrids to prevent undersampling
 	bool center_anchored_to_lens, center_anchored_to_source, center_anchored_to_ptsrc;
-	LensProfile* center_anchor_lens;
+	LensProfile<double>* center_anchor_lens;
 	SB_Profile* center_anchor_source;
 	PointSource* center_anchor_ptsrc;
 	SB_Profile** parameter_anchor_source;
@@ -149,7 +150,7 @@ class SB_Profile : public EllipticityGradient, private UCMC, private Simplex
 	}
 	void set_qlens_pointer(QLens* qlens_in) { qlens = qlens_in; }
 
-	void anchor_center_to_lens(LensProfile** center_anchor_list, const int &center_anchor_lens_number);
+	void anchor_center_to_lens(LensProfile<double>** center_anchor_list, const int &center_anchor_lens_number);
 	void anchor_center_to_source(SB_Profile** center_anchor_list, const int &center_anchor_source_number);
 	void anchor_center_to_ptsrc(PointSource** center_anchor_list, const int &center_anchor_ptsrc_number);
 	void delete_center_anchor();
@@ -451,7 +452,7 @@ class DoubleSersic : public SB_Profile
 
 class SPLE : public SB_Profile
 {
-	friend SPLE_Lens;
+	friend class SPLE_Lens;
 
 	private:
 	double bs, s, alpha;
@@ -476,7 +477,7 @@ class SPLE : public SB_Profile
 
 class dPIE : public SB_Profile
 {
-	friend dPIE_Lens;
+	friend class dPIE_Lens;
 
 	private:
 	double bs, s, a;

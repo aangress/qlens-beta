@@ -5,11 +5,18 @@
 #include "sbprofile.h"
 #include "mathexpr.h"
 #include "errors.h"
-#include "mathfuncs.h"
+#include "GregsMathHdr.h"
 #include "hyp_2F1.h"
 #include "qlens.h"
 #include <complex>
 using namespace std;
+
+bool Shear::use_shear_component_params = false;
+bool Shear::angle_points_towards_perturber = false; // this option points towards a hypothetical distant perturber that would generate the given shear (differs by 90 degrees)
+const double CoreCusp::nstep = 0.2;
+const double CoreCusp::digamma_three_halves = 0.036489973978435;
+const double SPLE_Lens::euler_mascheroni = 0.57721566490153286060;
+const double SPLE_Lens::def_tolerance = 1e-16;
 
 /*************************** Softened power law model (alpha) *****************************/
 
@@ -24,24 +31,24 @@ using namespace std;
 SPLE_Lens::SPLE_Lens(const double zlens_in, const double zsrc_in, const double &bb, const double &slope, const double &ss, const double &q_in, const double &theta_degrees, const double &xc_in, const double &yc_in, const int parameter_mode_in, Cosmology* cosmo_in)
 {
 	setup_lens_properties(parameter_mode_in);
-	this->set_redshifts(zlens_in,zsrc_in);
-	this->setup_cosmology(cosmo_in);
-	this->initialize_parameters(bb,slope,ss,q_in,theta_degrees,xc_in,yc_in);
+	set_redshifts(zlens_in,zsrc_in);
+	setup_cosmology(cosmo_in);
+	initialize_parameters(bb,slope,ss,q_in,theta_degrees,xc_in,yc_in);
 }
 
 void SPLE_Lens::setup_lens_properties(const int parameter_mode_in, const int subclass)
 {
 	lenstype = sple_LENS;
 	model_name = "sple";
-	lensparams = &lensparams_sple;
-	this->setup_base_lens_properties(8,3,true,parameter_mode_in); // number of parameters = 7, is_elliptical_lens = true
+	setup_base_lens_properties(8,3,true,parameter_mode_in); // number of parameters = 7, is_elliptical_lens = true
 	analytic_3d_density = true;
 }
 
-void SPLE_Lens::initialize_parameters(const double &bb, const double &slope, const double &ss, const double &q_in, const double &theta_degrees, const double &xc_in, const double &yc_in)
+void SPLE_Lens::initialize_parameters(const double &bb, const double &slope, const double &ss, const double &q_in, const double &theta_degrees,
+		const double &xc_in, const double &yc_in)
 {
 	// if use_ellipticity_components is on, q_in and theta_in are actually e1, e2, but this is taken care of in set_geometric_parameters
-	this->set_geometric_parameters(q_in,theta_degrees,xc_in,yc_in);
+	set_geometric_parameters(q_in,theta_degrees,xc_in,yc_in);
 	b = bb;
 	s = ss;
 	if (parameter_mode==0) {
@@ -51,28 +58,28 @@ void SPLE_Lens::initialize_parameters(const double &bb, const double &slope, con
 	}
 	if (s < 0) s = -s; // don't allow negative core radii
 
-	this->update_meta_parameters_and_pointers();
+	update_meta_parameters_and_pointers();
 }
 
 SPLE_Lens::SPLE_Lens(const SPLE_Lens* lens_in)
 {
-	this->copy_base_lensdata(lens_in);
+	copy_base_lensdata(lens_in);
 	b = lens_in->b;
 	alpha = lens_in->alpha;
 	if (parameter_mode==1) gamma = lens_in->gamma;
 	s = lens_in->s;
 
-	this->update_meta_parameters_and_pointers();
+	update_meta_parameters_and_pointers();
 }
 
 SPLE_Lens::SPLE_Lens(SPLE* sb_in, const int parameter_mode_in, const bool vary_mass_parameter, const bool include_limits_in, const double mass_param_lower, const double mass_param_upper)
 {
-	this->setup_lens_properties(parameter_mode_in);
-	this->copy_source_data_to_lens(sb_in);
+	setup_lens_properties(parameter_mode_in);
+	copy_source_data_to_lens(sb_in);
 	b = sb_in->bs;
 	alpha = sb_in->alpha;
 	s = sb_in->s;
-	this->set_spawned_mass_and_anchor_parameters((SB_Profile*) sb_in, vary_mass_parameter, include_limits_in, mass_param_lower,mass_param_upper);
+	set_spawned_mass_and_anchor_parameters((SB_Profile*) sb_in, vary_mass_parameter, include_limits_in, mass_param_lower,mass_param_upper);
 }
 
 void SPLE_Lens::assign_paramnames()
@@ -84,7 +91,7 @@ void SPLE_Lens::assign_paramnames()
 		paramnames[1] = "gamma"; latex_paramnames[1] = "\\gamma"; latex_param_subscripts[1] = "";
 	}
 	paramnames[2] = "s";     latex_paramnames[2] = "s";       latex_param_subscripts[2] = "";
-	this->set_geometric_paramnames(lensprofile_nparams);
+	set_geometric_paramnames(lensprofile_nparams);
 }
 
 void SPLE_Lens::assign_param_pointers()
@@ -96,17 +103,17 @@ void SPLE_Lens::assign_param_pointers()
 		param[1] = &gamma;
 	}
 	param[2] = &s;
-	this->set_geometric_param_pointers(lensprofile_nparams);
+	set_geometric_param_pointers(lensprofile_nparams);
 }
 
 void SPLE_Lens::update_meta_parameters()
 {
-	this->update_cosmology_meta_parameters();
-	this->update_ellipticity_meta_parameters();
+	update_cosmology_meta_parameters();
+	update_ellipticity_meta_parameters();
 	// these meta-parameters are used in analytic formulas for deflection, potential, etc.
 	bprime = b*f_major_axis;
 	sprime = s*f_major_axis;
-	qsq = q*q; ssq_prime = sprime*sprime;
+	qsq = q*q; ssq = sprime*sprime;
 	if (parameter_mode==1) alpha = gamma-1;
 }
 
@@ -116,7 +123,7 @@ void SPLE_Lens::set_auto_stepsizes()
 	stepsizes[index++] = 0.1*b;
 	stepsizes[index++] = 0.1;
 	stepsizes[index++] = 0.02*b; // this one is a bit arbitrary, but hopefully reasonable enough
-	this->set_geometric_param_auto_stepsizes(index);
+	set_geometric_param_auto_stepsizes(index);
 }
 
 void SPLE_Lens::set_auto_ranges()
@@ -128,52 +135,39 @@ void SPLE_Lens::set_auto_ranges()
 		set_auto_penalty_limits[1] = true; penalty_lower_limits[1] = 1; penalty_upper_limits[1] = 3; // for 3D log-slope gamma
 	}
 	set_auto_penalty_limits[2] = true; penalty_lower_limits[2] = 0; penalty_upper_limits[2] = 1e30;
-	this->set_geometric_param_auto_ranges(lensprofile_nparams);
+	set_geometric_param_auto_ranges(lensprofile_nparams);
 }
 
 void SPLE_Lens::set_model_specific_integration_pointers()
 {
 	// Here, we direct the integration pointers to analytic formulas in special cases where analytic solutions are possible
-	this->kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&SPLE_Lens::kapavg_spherical_rsq);
-	this->potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&SPLE_Lens::potential_spherical_rsq);
-	if (!this->ellipticity_gradient) {
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&SPLE_Lens::kapavg_spherical_rsq);
+	potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&SPLE_Lens::potential_spherical_rsq);
+	if (!ellipticity_gradient) {
 		if (alpha==1.0) {
-			this->kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&SPLE_Lens::kapavg_spherical_rsq_iso);
-			this->potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&SPLE_Lens::potential_spherical_rsq_iso);
+			kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&SPLE_Lens::kapavg_spherical_rsq_iso);
+			potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&SPLE_Lens::potential_spherical_rsq_iso);
 			if (q != 1.0) {
-				this->defptr = static_cast<void (LensProfile::*)(const double,const double,lensvector<double>&)> (&SPLE_Lens::deflection_elliptical_iso);
-				this->hessptr = static_cast<void (LensProfile::*)(const double,const double,lensmatrix<double>&)> (&SPLE_Lens::hessian_elliptical_iso);
-				this->potptr = static_cast<double (LensProfile::*)(const double,const double)> (&SPLE_Lens::potential_elliptical_iso);
+				defptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensvector<double>&)> (&SPLE_Lens::deflection_elliptical_iso);
+				hessptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensmatrix<double>&)> (&SPLE_Lens::hessian_elliptical_iso);
+				potptr = static_cast<double (LensProfile<double>::*)(const double,const double)> (&SPLE_Lens::potential_elliptical_iso);
 			}
 		} else if (s==0.0) {
-			this->potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&SPLE_Lens::potential_spherical_rsq_nocore);
+			potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&SPLE_Lens::potential_spherical_rsq_nocore);
 			if (q != 1.0) {
-				this->defptr = static_cast<void (LensProfile::*)(const double,const double,lensvector<double>&)> (&SPLE_Lens::deflection_elliptical_nocore);
-				this->hessptr = static_cast<void (LensProfile::*)(const double,const double,lensmatrix<double>&)> (&SPLE_Lens::hessian_elliptical_nocore);
-				this->potptr = static_cast<double (LensProfile::*)(const double,const double)> (&SPLE_Lens::potential_elliptical_nocore);
-				this->def_and_hess_ptr = static_cast<void (LensProfile::*)(const double,const double,lensvector<double>&,lensmatrix<double>&)> (&SPLE_Lens::deflection_and_hessian_elliptical_nocore);
+				defptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensvector<double>&)> (&SPLE_Lens::deflection_elliptical_nocore);
+				hessptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensmatrix<double>&)> (&SPLE_Lens::hessian_elliptical_nocore);
+				potptr = static_cast<double (LensProfile<double>::*)(const double,const double)> (&SPLE_Lens::potential_elliptical_nocore);
+				def_and_hess_ptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensvector<double>&,lensmatrix<double>&)> (&SPLE_Lens::deflection_and_hessian_elliptical_nocore);
 			}
 		}
 	}
 }
 
-template <typename QScalar>
-QScalar SPLE_Lens::templated_kappa_rsq(const QScalar rsq)
-{
-	SPLE_Params<QScalar>& p = assign_param_object<QScalar>(); // this reference will point to either the <double> lensparams or <stan::math::var> lensparams for autodiff
-	return ((2-p.alpha) * pow(p.b*p.b/(p.s*p.s+rsq), p.alpha/2) / 2);
-}
-template double SPLE_Lens::templated_kappa_rsq<double>(const double rsq);
-#ifdef USE_STAN
-template stan::math::var SPLE_Lens::templated_kappa_rsq<stan::math::var>(const stan::math::var rsq);
-#endif
-
-
 double SPLE_Lens::kappa_rsq(const double rsq)
 {
 	return ((2-alpha) * pow(b*b/(s*s+rsq), alpha/2) / 2);
 }
-
 
 double SPLE_Lens::kappa_rsq_deriv(const double rsq)
 {
@@ -211,7 +205,7 @@ double SPLE_Lens::potential_spherical_rsq_iso(const double rsq) // only for alph
 	return tmp;
 }
 
-double SPLE_Lens::potential_spherical_rsq_nocore(const double rsq)
+double SPLE_Lens::potential_spherical_rsq_nocore(const double rsq) // only for sprime=0
 {
 	return pow(b*b/rsq,alpha/2)*rsq/(2-alpha);
 }
@@ -222,7 +216,7 @@ double SPLE_Lens::potential_spherical_rsq_nocore(const double rsq)
 void SPLE_Lens::deflection_elliptical_iso(const double x, const double y, lensvector<double>& def) // only for alpha=1
 {
 	double u, psi;
-	psi = sqrt(qsq*(ssq_prime+x*x)+y*y);
+	psi = sqrt(qsq*(ssq+x*x)+y*y);
 	u = sqrt(1-qsq);
 
 	def[0] = (bprime*q/u)*atan(u*x/(psi+sprime));
@@ -234,11 +228,11 @@ void SPLE_Lens::hessian_elliptical_iso(const double x, const double y, lensmatri
 	double xsq, ysq, psi, tmp;
 	xsq=x*x; ysq=y*y;
 
-	psi = sqrt(qsq*(ssq_prime+xsq)+ysq);
-	tmp = ((bprime*q)/psi)/(xsq+ysq+2*psi*sprime+ssq_prime*(1+qsq));
+	psi = sqrt(qsq*(ssq+xsq)+ysq);
+	tmp = ((bprime*q)/psi)/(xsq+ysq+2*psi*sprime+ssq*(1+qsq));
 
-	hess[0][0] = tmp*(ysq+sprime*psi+ssq_prime*qsq);
-	hess[1][1] = tmp*(xsq+sprime*psi+ssq_prime);
+	hess[0][0] = tmp*(ysq+sprime*psi+ssq*qsq);
+	hess[1][1] = tmp*(xsq+sprime*psi+ssq);
 	hess[0][1] = -tmp*x*y;
 	hess[1][0] = hess[0][1];
 }
@@ -246,7 +240,7 @@ void SPLE_Lens::hessian_elliptical_iso(const double x, const double y, lensmatri
 double SPLE_Lens::potential_elliptical_iso(const double x, const double y) // only for alpha=1
 {
 	double u, tmp, psi;
-	psi = sqrt(qsq*(ssq_prime+x*x)+y*y);
+	psi = sqrt(qsq*(ssq+x*x)+y*y);
 	u = sqrt(1-qsq);
 
 	tmp = (bprime*q/u)*(x*atan(u*x/(psi+sprime)) + y*atanh(u*y/(psi+qsq*sprime)));
@@ -380,7 +374,7 @@ void SPLE_Lens::get_einstein_radius(double& re_major_axis, double& re_average, c
 	} else {
 		rmin_einstein_radius = 0.01*b;
 		rmax_einstein_radius = 100*b;
-		LensProfile::get_einstein_radius(re_major_axis,re_average,zfactor);
+		LensProfile<double>::get_einstein_radius(re_major_axis,re_average,zfactor);
 	}
 }
 
@@ -392,7 +386,7 @@ double SPLE_Lens::calculate_scaled_mass_3d(const double r)
 		B = (1.5-a2)*pow(b,alpha)*Gamma(a2)/(M_SQRT_PI*Gamma(alpha/2));
 		return 4*M_PI*B*pow(r,2-alpha)/(2-alpha);
 	} else {
-		return this->calculate_scaled_mass_3d_from_analytic_rho3d(r);
+		return calculate_scaled_mass_3d_from_analytic_rho3d(r);
 	}
 }
 
@@ -430,15 +424,15 @@ bool SPLE_Lens::output_cosmology_info(const int lens_number)
 
 dPIE_Lens::dPIE_Lens(const double zlens_in, const double zsrc_in, const double &p1_in, const double &p2_in, const double &p3_in, const double &q_in, const double &theta_degrees, const double &xc_in, const double &yc_in, const int parameter_mode_in, Cosmology* cosmo_in)
 {
-	this->setup_lens_properties(parameter_mode_in);
-	this->set_redshifts(zlens_in,zsrc_in);
-	this->setup_cosmology(cosmo_in);
-	this->initialize_parameters(p1_in,p2_in,p3_in,q_in,theta_degrees,xc_in,yc_in);
+	setup_lens_properties(parameter_mode_in);
+	set_redshifts(zlens_in,zsrc_in);
+	setup_cosmology(cosmo_in);
+	initialize_parameters(p1_in,p2_in,p3_in,q_in,theta_degrees,xc_in,yc_in);
 }
 
 void dPIE_Lens::initialize_parameters(const double &p1_in, const double &p2_in, const double &p3_in, const double &q_in, const double &theta_degrees, const double &xc_in, const double &yc_in)
 {
-	this->set_geometric_parameters(q_in,theta_degrees,xc_in,yc_in);
+	set_geometric_parameters(q_in,theta_degrees,xc_in,yc_in);
 	if (parameter_mode==0) {
 		b = p1_in;
 		a = p2_in;
@@ -453,20 +447,20 @@ void dPIE_Lens::initialize_parameters(const double &p1_in, const double &p2_in, 
 		s_kpc = p3_in;
 	}
 
-	this->update_meta_parameters_and_pointers();
+	update_meta_parameters_and_pointers();
 }
 
 void dPIE_Lens::setup_lens_properties(const int parameter_mode, const int subclass)
 {
 	lenstype = dpie_LENS;
 	model_name = "dpie";
-	this->setup_base_lens_properties(8,3,true,parameter_mode); // number of parameters = 7, is_elliptical_lens = true
+	setup_base_lens_properties(8,3,true,parameter_mode); // number of parameters = 7, is_elliptical_lens = true
 	analytic_3d_density = true;
 }
 
 dPIE_Lens::dPIE_Lens(const dPIE_Lens* lens_in)
 {
-	this->copy_base_lensdata(lens_in);
+	copy_base_lensdata(lens_in);
 	b = lens_in->b;
 	a = lens_in->a;
 	s = lens_in->s;
@@ -480,17 +474,17 @@ dPIE_Lens::dPIE_Lens(const dPIE_Lens* lens_in)
 		s_kpc = lens_in->s_kpc;
 	}
 
-	this->update_meta_parameters_and_pointers();
+	update_meta_parameters_and_pointers();
 }
 
 dPIE_Lens::dPIE_Lens(dPIE* sb_in, const int parameter_mode_in, const bool vary_mass_parameter, const bool include_limits_in, const double mass_param_lower, const double mass_param_upper)
 {
-	this->setup_lens_properties(parameter_mode_in);
-	this->copy_source_data_to_lens(sb_in);
+	setup_lens_properties(parameter_mode_in);
+	copy_source_data_to_lens(sb_in);
 	b = sb_in->bs;
 	a = sb_in->a;
 	s = sb_in->s;
-	this->set_spawned_mass_and_anchor_parameters((SB_Profile*) sb_in, vary_mass_parameter, include_limits_in, mass_param_lower,mass_param_upper);
+	set_spawned_mass_and_anchor_parameters((SB_Profile*) sb_in, vary_mass_parameter, include_limits_in, mass_param_lower,mass_param_upper);
 }
 
 void dPIE_Lens::assign_paramnames()
@@ -508,7 +502,7 @@ void dPIE_Lens::assign_paramnames()
 		paramnames[1] = "a_kpc"; latex_paramnames[1] = "a"; latex_param_subscripts[1] = "kpc";
 		paramnames[2] = "s_kpc"; latex_paramnames[2] = "s"; latex_param_subscripts[2] = "kpc";
 	}
-	this->set_geometric_paramnames(lensprofile_nparams);
+	set_geometric_paramnames(lensprofile_nparams);
 }
 
 void dPIE_Lens::assign_param_pointers()
@@ -526,24 +520,24 @@ void dPIE_Lens::assign_param_pointers()
 		param[1] = &a_kpc;
 		param[2] = &s_kpc;
 	}
-	this->set_geometric_param_pointers(lensprofile_nparams);
+	set_geometric_param_pointers(lensprofile_nparams);
 }
 
 void dPIE_Lens::update_meta_parameters()
 {
-	this->update_cosmology_meta_parameters();
-	this->update_ellipticity_meta_parameters();
-	if (this->cosmo != NULL) {
+	update_cosmology_meta_parameters();
+	update_ellipticity_meta_parameters();
+	if (cosmo != NULL) {
 		if (parameter_mode==1) set_abs_params_from_sigma0();
 		else if (parameter_mode==2) set_abs_params_from_mtot();
 	}
 	bprime = b*f_major_axis;
 	aprime = a*f_major_axis;
 	sprime = s*f_major_axis;
-	qsq = q*q; asq = aprime*aprime; ssq_prime = sprime*sprime;
+	qsq = q*q; asq = aprime*aprime; ssq = sprime*sprime;
 }
 
-void dPIE_Lens::assign_special_anchored_parameters(LensProfile *host_in, const double factor, const bool just_created)
+void dPIE_Lens::assign_special_anchored_parameters(LensProfile<double> *host_in, const double factor, const bool just_created)
 {
 	anchor_special_parameter = true;
 	special_anchor_lens = host_in;
@@ -557,7 +551,7 @@ void dPIE_Lens::assign_special_anchored_parameters(LensProfile *host_in, const d
 	}
 	else a = sqrt(ravg*b); // this is an approximate formula (a = sqrt(b*Re_halo)) and assumes the subhalo is found roughly near the Einstein radius of the halo
 	if (parameter_mode==1) a_kpc = a/kpc_to_arcsec;
-	this->update_meta_parameters();
+	update_meta_parameters();
 }
 
 void dPIE_Lens::update_special_anchored_params()
@@ -624,7 +618,7 @@ void dPIE_Lens::set_auto_stepsizes()
 		stepsizes[index++] = 0.2*b/kpc_to_arcsec;
 		stepsizes[index++] = 0.02*b/kpc_to_arcsec; // this one is a bit arbitrary, but hopefully reasonable enough
 	}
-	this->set_geometric_param_auto_stepsizes(index);
+	set_geometric_param_auto_stepsizes(index);
 }
 
 void dPIE_Lens::set_auto_ranges()
@@ -632,18 +626,18 @@ void dPIE_Lens::set_auto_ranges()
 	set_auto_penalty_limits[0] = true; penalty_lower_limits[0] = 0; penalty_upper_limits[0] = 1e30;
 	set_auto_penalty_limits[1] = true; penalty_lower_limits[1] = 0; penalty_upper_limits[1] = 1e30;
 	set_auto_penalty_limits[2] = true; penalty_lower_limits[2] = 0; penalty_upper_limits[2] = 1e30;
-	this->set_geometric_param_auto_ranges(lensprofile_nparams);
+	set_geometric_param_auto_ranges(lensprofile_nparams);
 }
 
 void dPIE_Lens::set_model_specific_integration_pointers()
 {
-	this->kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&dPIE_Lens::kapavg_spherical_rsq);
-	this->potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&dPIE_Lens::potential_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&dPIE_Lens::kapavg_spherical_rsq);
+	potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&dPIE_Lens::potential_spherical_rsq);
 	if (!ellipticity_gradient) {
 		if (q != 1.0) {
-			this->defptr = static_cast<void (LensProfile::*)(const double,const double,lensvector<double>&)> (&dPIE_Lens::deflection_elliptical);
-			this->hessptr = static_cast<void (LensProfile::*)(const double,const double,lensmatrix<double>&)> (&dPIE_Lens::hessian_elliptical);
-			this->potptr = static_cast<double (LensProfile::*)(const double,const double)> (&dPIE_Lens::potential_elliptical);
+			defptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensvector<double>&)> (&dPIE_Lens::deflection_elliptical);
+			hessptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensmatrix<double>&)> (&dPIE_Lens::hessian_elliptical);
+			potptr = static_cast<double (LensProfile<double>::*)(const double,const double)> (&dPIE_Lens::potential_elliptical);
 		}
 	}
 }
@@ -678,7 +672,7 @@ double dPIE_Lens::potential_spherical_rsq(const double rsq)
 void dPIE_Lens::deflection_elliptical(const double x, const double y, lensvector<double>& def)
 {
 	double psi, psi2, u;
-	psi = sqrt(qsq*(ssq_prime+x*x)+y*y);
+	psi = sqrt(qsq*(ssq+x*x)+y*y);
 	psi2 = sqrt(qsq*(asq+x*x)+y*y);
 	u = sqrt(1-qsq);
 
@@ -690,14 +684,14 @@ void dPIE_Lens::hessian_elliptical(const double x, const double y, lensmatrix<do
 {
 	double xsq, ysq, psi, tmp1, psi2, tmp2;
 	xsq=x*x; ysq=y*y;
-	psi = sqrt(qsq*(ssq_prime+xsq)+ysq);
-	tmp1 = (bprime*q/psi)/(xsq+ysq+2*psi*sprime+ssq_prime*(1+qsq));
+	psi = sqrt(qsq*(ssq+xsq)+ysq);
+	tmp1 = (bprime*q/psi)/(xsq+ysq+2*psi*sprime+ssq*(1+qsq));
 
 	psi2 = sqrt(qsq*(asq+xsq)+ysq);
 	tmp2 = (bprime*q/psi2)/(xsq+ysq+2*psi2*aprime+asq*(1+qsq));
 
-	hess[0][0] = tmp1*(ysq+sprime*psi+ssq_prime*qsq) - tmp2*(ysq+aprime*psi2+asq*qsq);
-	hess[1][1] = tmp1*(xsq+sprime*psi+ssq_prime) - tmp2*(xsq+aprime*psi2+asq);
+	hess[0][0] = tmp1*(ysq+sprime*psi+ssq*qsq) - tmp2*(ysq+aprime*psi2+asq*qsq);
+	hess[1][1] = tmp1*(xsq+sprime*psi+ssq) - tmp2*(xsq+aprime*psi2+asq);
 	hess[0][1] = (-tmp1+tmp2)*x*y;
 	hess[1][0] = hess[0][1];
 }
@@ -705,7 +699,7 @@ void dPIE_Lens::hessian_elliptical(const double x, const double y, lensmatrix<do
 double dPIE_Lens::potential_elliptical(const double x, const double y)
 {
 	double psi, psi2, u;
-	psi = sqrt(qsq*(ssq_prime+x*x)+y*y);
+	psi = sqrt(qsq*(ssq+x*x)+y*y);
 	psi2 = sqrt(qsq*(asq+x*x)+y*y);
 	u = sqrt(1-qsq);
 
@@ -749,7 +743,7 @@ bool dPIE_Lens::output_cosmology_info(const int lens_number)
 		cout << "b = " << b << " arcsec" << endl;
 	}
 	calculate_total_scaled_mass(mtot);
-	bool rhalf_converged = this->calculate_half_mass_radius(rhalf,mtot);
+	bool rhalf_converged = calculate_half_mass_radius(rhalf,mtot);
 	mtot *= sigma_cr;
 	cout << "total mass = " << mtot << " M_sun" << endl;
 	if (rhalf_converged) cout << "half-mass radius: " << rhalf/kpc_to_arcsec << " kpc (" << rhalf << " arcsec)" << endl;
@@ -923,7 +917,7 @@ void NFW::update_meta_parameters()
 	rmin_einstein_radius = 1e-6*rs; // for determining the Einstein radius (sets lower bound of root finder)
 }
 
-void NFW::assign_special_anchored_parameters(LensProfile *host_in, const double factor, const bool just_created)
+void NFW::assign_special_anchored_parameters(LensProfile<double> *host_in, const double factor, const bool just_created)
 {
 	// the following special anchoring is to enforce a mass-concentration relation
 	anchor_special_parameter = true;
@@ -968,8 +962,8 @@ void NFW::set_auto_ranges()
 
 void NFW::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&NFW::kapavg_spherical_rsq);
-	potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&NFW::potential_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&NFW::kapavg_spherical_rsq);
+	potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&NFW::potential_spherical_rsq);
 }
 
 void NFW::set_ks_c200_from_m200_rs()
@@ -1001,13 +995,11 @@ double NFW::kappa_rsq(const double rsq)
 
 double NFW::kappa_rsq_deriv(const double rsq)
 {
-	double rssq, xsq;
-	rssq = rs*rs;
-	xsq = rsq/rssq;
+	double xsq = rsq/(rs*rs);
 	// below xsq ~ 1e-6 or so, kappa formula becomes inaccurate due to fine cancellations; a series expansion
 	// is done for xsq smaller than this
 	if (xsq < 1e-6) return -ks/rsq;
-	else if (abs(xsq-1.0) < 1e-5) return 2*ks/rssq*(-0.2 + 2*(xsq-1)/7.0); // formula on next line becomes unstable for x close to 1, this fixes it
+	else if (abs(xsq-1.0) < 1e-5) return 2*ks/(rs*rs)*(-0.2 + 2*(xsq-1)/7.0); // formula on next line becomes unstable for x close to 1, this fixes it
 	else return -(ks/rsq)*((xsq*(2.0-3*lens_function_xsq(xsq)) + 1)/((xsq-1)*(xsq-1)));
 }
 
@@ -1303,7 +1295,7 @@ void Truncated_NFW::update_meta_parameters()
 	rmin_einstein_radius = 1e-6*rs;
 }
 
-void Truncated_NFW::assign_special_anchored_parameters(LensProfile *host_in, const double factor, const bool just_created)
+void Truncated_NFW::assign_special_anchored_parameters(LensProfile<double> *host_in, const double factor, const bool just_created)
 {
 	// the following special anchoring is to enforce a mass-concentration relation
 	anchor_special_parameter = true;
@@ -1361,7 +1353,7 @@ void Truncated_NFW::set_auto_ranges()
 
 void Truncated_NFW::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&Truncated_NFW::kapavg_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&Truncated_NFW::kapavg_spherical_rsq);
 }
 
 void Truncated_NFW::set_ks_c200_from_m200_rs()
@@ -1654,7 +1646,7 @@ void Cored_NFW::update_meta_parameters()
 	//if (rs <= rc) die("scale radius a cannot be equal to or less than core radius s for Cored NFW model");
 }
 
-void Cored_NFW::assign_special_anchored_parameters(LensProfile *host_in, const double factor, const bool just_created)
+void Cored_NFW::assign_special_anchored_parameters(LensProfile<double> *host_in, const double factor, const bool just_created)
 {
 	// the following special anchoring is to enforce a mass-concentration relation
 	anchor_special_parameter = true;
@@ -1705,8 +1697,8 @@ void Cored_NFW::set_auto_ranges()
 
 void Cored_NFW::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&Cored_NFW::kapavg_spherical_rsq);
-	//potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&Cored_NFW::potential_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&Cored_NFW::kapavg_spherical_rsq);
+	//potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&Cored_NFW::potential_spherical_rsq);
 }
 
 void Cored_NFW::set_ks_rs_from_m200_c200_beta()
@@ -2014,8 +2006,8 @@ void Hernquist::set_auto_ranges()
 
 void Hernquist::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&Hernquist::kapavg_spherical_rsq);
-	potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&Hernquist::potential_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&Hernquist::kapavg_spherical_rsq);
+	potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&Hernquist::potential_spherical_rsq);
 }
 
 double Hernquist::kappa_rsq(const double rsq)
@@ -2130,7 +2122,7 @@ void ExpDisk::set_auto_ranges()
 
 void ExpDisk::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&ExpDisk::kapavg_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&ExpDisk::kapavg_spherical_rsq);
 }
 
 double ExpDisk::kappa_rsq(const double rsq)
@@ -2160,10 +2152,10 @@ bool ExpDisk::calculate_total_scaled_mass(double& total_mass)
 
 Shear::Shear(const double zlens_in, const double zsrc_in, const double &shear_p1_in, const double &shear_p2_in, const double &xc_in, const double &yc_in, Cosmology* cosmo_in)
 {
-	this->setup_lens_properties();
-	this->set_redshifts(zlens_in,zsrc_in);
-	this->setup_cosmology(cosmo_in);
-	this->initialize_parameters(shear_p1_in,shear_p2_in,xc_in,yc_in);
+	setup_lens_properties();
+	set_redshifts(zlens_in,zsrc_in);
+	setup_cosmology(cosmo_in);
+	initialize_parameters(shear_p1_in,shear_p2_in,xc_in,yc_in);
 }
 
 void Shear::initialize_parameters(const double &shear_p1_in, const double &shear_p2_in, const double &xc_in, const double &yc_in)
@@ -2173,27 +2165,27 @@ void Shear::initialize_parameters(const double &shear_p1_in, const double &shear
 		shear2 = shear_p2_in;
 	} else {
 		shear = shear_p1_in;
-		this->set_angle(shear_p2_in);
+		set_angle(shear_p2_in);
 	}
 	x_center = xc_in;
 	y_center = yc_in;
-	this->update_meta_parameters();
+	update_meta_parameters();
 }
 
 void Shear::setup_lens_properties(const int parameter_mode, const int subclass)
 {
 	lenstype = SHEAR;
 	model_name = "shear";
-	this->setup_base_lens_properties(5,-1,false); // number of parameters = 4, is_elliptical_lens = false
+	setup_base_lens_properties(5,-1,false); // number of parameters = 4, is_elliptical_lens = false
 }
 
 Shear::Shear(const Shear* lens_in)
 {
-	this->copy_base_lensdata(lens_in);
+	copy_base_lensdata(lens_in);
 	shear1 = lens_in->shear1;
 	shear2 = lens_in->shear2;
 	shear = lens_in->shear;
-	this->update_meta_parameters();
+	update_meta_parameters();
 }
 
 void Shear::assign_paramnames()
@@ -2240,7 +2232,7 @@ void Shear::assign_param_pointers()
 
 void Shear::update_meta_parameters()
 {
-	this->update_cosmology_meta_parameters();
+	update_cosmology_meta_parameters();
 	if (use_shear_component_params) {
 		shear = sqrt(SQR(shear1) + SQR(shear2));
 		set_angle_from_components(shear1,shear2);
@@ -2281,8 +2273,8 @@ void Shear::set_auto_ranges()
 
 void Shear::set_model_specific_integration_pointers()
 {
-	this->kapavgptr_rsq_spherical = NULL;
-	this->potptr_rsq_spherical = NULL;
+	kapavgptr_rsq_spherical = NULL;
+	potptr_rsq_spherical = NULL;
 }
 
 double Shear::potential(double x, double y)
@@ -2343,7 +2335,7 @@ void Shear::set_angle_from_components(const double &shear1, const double &shear2
 	if (orient_major_axis_north) angle -= M_HALFPI;
 	while (angle > M_HALFPI) angle -= M_PI;
 	while (angle <= -M_HALFPI) angle += M_PI;
-	this->set_angle_radians(angle);
+	set_angle_radians(angle);
 }
 
 /***************************** Multipole term *******************************/
@@ -2465,11 +2457,11 @@ void Multipole::set_auto_ranges()
 
 void Multipole::set_model_specific_integration_pointers()
 {
-	defptr = static_cast<void (LensProfile::*)(const double,const double,lensvector<double>&)> (&Multipole::deflection);
-	hessptr = static_cast<void (LensProfile::*)(const double,const double,lensmatrix<double>&)> (&Multipole::hessian);
+	defptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensvector<double>&)> (&Multipole::deflection);
+	hessptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensmatrix<double>&)> (&Multipole::hessian);
 	kapavgptr_rsq_spherical = NULL;
 	potptr_rsq_spherical = NULL;
-	if (m==0) kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&Multipole::deflection_m0_spherical_r);
+	if (m==0) kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&Multipole::deflection_m0_spherical_r);
 }
 
 double Multipole::kappa(double x, double y)
@@ -2807,8 +2799,8 @@ void PointMass::update_meta_parameters()
 
 void PointMass::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&PointMass::kapavg_spherical_rsq);
-	potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&PointMass::potential_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&PointMass::kapavg_spherical_rsq);
+	potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&PointMass::potential_spherical_rsq);
 }
 
 double PointMass::potential(double x, double y)
@@ -2989,7 +2981,7 @@ void CoreCusp::update_meta_parameters()
 }
 
 
-void CoreCusp::assign_special_anchored_parameters(LensProfile *host_in, const double factor, const bool just_created)
+void CoreCusp::assign_special_anchored_parameters(LensProfile<double> *host_in, const double factor, const bool just_created)
 {
 	anchor_special_parameter = true;
 	special_anchor_lens = host_in;
@@ -3050,7 +3042,7 @@ void CoreCusp::set_auto_ranges()
 
 void CoreCusp::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&CoreCusp::kapavg_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&CoreCusp::kapavg_spherical_rsq);
 }
 
 double CoreCusp::kappa_rsq(const double rsq)
@@ -3379,7 +3371,7 @@ void SersicLens::set_auto_ranges()
 
 void SersicLens::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&SersicLens::kapavg_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&SersicLens::kapavg_spherical_rsq);
 }
 
 double SersicLens::kappa_rsq(const double rsq)
@@ -3800,7 +3792,7 @@ void Cored_SersicLens::set_auto_ranges()
 
 void Cored_SersicLens::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&Cored_SersicLens::kapavg_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&Cored_SersicLens::kapavg_spherical_rsq);
 }
 
 double Cored_SersicLens::kappa_rsq(const double rsq)
@@ -3924,8 +3916,8 @@ void MassSheet::set_auto_ranges()
 
 void MassSheet::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&MassSheet::kapavg_spherical_rsq);
-	potptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&MassSheet::potential_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&MassSheet::kapavg_spherical_rsq);
+	potptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&MassSheet::potential_spherical_rsq);
 }
 
 double MassSheet::potential(double x, double y)
@@ -4033,8 +4025,8 @@ void Deflection::assign_paramnames()
 
 void Deflection::set_model_specific_integration_pointers()
 {
-	defptr = static_cast<void (LensProfile::*)(const double,const double,lensvector<double>&)> (&Deflection::deflection);
-	hessptr = static_cast<void (LensProfile::*)(const double,const double,lensmatrix<double>&)> (&Deflection::hessian);
+	defptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensvector<double>&)> (&Deflection::deflection);
+	hessptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensmatrix<double>&)> (&Deflection::hessian);
 	kapavgptr_rsq_spherical = NULL;
 	potptr_rsq_spherical = NULL;
 }
@@ -4098,7 +4090,7 @@ void Deflection::potential_derivatives(double x, double y, lensvector<double>& d
 
 /******************************* Tabulated Model *******************************/
 
-Tabulated_Model::Tabulated_Model(const double zlens_in, const double zsrc_in, const double &kscale_in, const double &rscale_in, const double &theta_in, const double xc, const double yc, LensProfile* lens_in, const double rmin, const double rmax, const int logr_N, const int phi_N, Cosmology* cosmo_in)
+Tabulated_Model::Tabulated_Model(const double zlens_in, const double zsrc_in, const double &kscale_in, const double &rscale_in, const double &theta_in, const double xc, const double yc, LensProfile<double>* lens_in, const double rmin, const double rmax, const int logr_N, const int phi_N, Cosmology* cosmo_in)
 {
 	lenstype = TABULATED;
 	model_name = "tab(" + lens_in->get_model_name() + ")";
@@ -4698,7 +4690,7 @@ Tabulated_Model::~Tabulated_Model() {
 
 
 /***************************** Tabulated Model that interpolates in q *****************************/
-QTabulated_Model::QTabulated_Model(const double zlens_in, const double zsrc_in, const double &kscale_in, const double &rscale_in, const double &q_in, const double &theta_in, const double xc, const double yc, LensProfile* lens_in, const double rmin, const double rmax, const int logr_N, const int phi_N, const double qmin_in, const int q_N, Cosmology* cosmo_in)
+QTabulated_Model::QTabulated_Model(const double zlens_in, const double zsrc_in, const double &kscale_in, const double &rscale_in, const double &q_in, const double &theta_in, const double xc, const double yc, LensProfile<double>* lens_in, const double rmin, const double rmax, const int logr_N, const int phi_N, const double qmin_in, const int q_N, Cosmology* cosmo_in)
 {
 	lenstype = QTABULATED;
 	model_name = "qtab(" + lens_in->get_model_name() + ")";
@@ -5469,11 +5461,11 @@ void TopHatLens::set_auto_ranges()
 
 void TopHatLens::set_model_specific_integration_pointers()
 {
-	kapavgptr_rsq_spherical = static_cast<double (LensProfile::*)(const double)> (&TopHatLens::kapavg_spherical_rsq);
+	kapavgptr_rsq_spherical = static_cast<double (LensProfile<double>::*)(const double)> (&TopHatLens::kapavg_spherical_rsq);
 	if (!ellipticity_gradient) {
-		defptr = static_cast<void (LensProfile::*)(const double,const double,lensvector<double>&)> (&TopHatLens::deflection_analytic);
-		hessptr = static_cast<void (LensProfile::*)(const double,const double,lensmatrix<double>&)> (&TopHatLens::hessian_analytic);
-		potptr = static_cast<double (LensProfile::*)(const double,const double)> (&TopHatLens::potential_analytic);
+		defptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensvector<double>&)> (&TopHatLens::deflection_analytic);
+		hessptr = static_cast<void (LensProfile<double>::*)(const double,const double,lensmatrix<double>&)> (&TopHatLens::hessian_analytic);
+		potptr = static_cast<double (LensProfile<double>::*)(const double,const double)> (&TopHatLens::potential_analytic);
 	}
 }
 

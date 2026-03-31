@@ -472,7 +472,6 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	MPI_Group *mpi_group;
 	MPI_Group *my_group;
 #endif
-	inline static bool use_autodiff = false;
 	static int nthreads;
 	int inversion_nthreads;
 	int simplex_nmax, simplex_nmax_anneal;
@@ -512,7 +511,7 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	DerivedParamList *dparam_list;
 
 	int nlens;
-	LensProfile** lens_list;
+	LensProfile<double>** lens_list;
 	LensList *lenslist;
 	int *lens_redshift_idx;
 
@@ -1003,6 +1002,8 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	void load_pixel_sbweights(const int imggrid_i=-1);
 	double chisq_regparam_dense(const double logreg);
 	double chisq_regparam(const double logreg);
+	template <typename T>
+	T tryfunc(const T);
 	void calculate_lumreg_srcpixel_weights(const int imggrid_i, const bool use_sbweights=false);
 	void calculate_distreg_srcpixel_weights(const int imggrid_i, const double xc=0, const double yc=0, const double sig=1.0, const bool verbal = false);
 	void calculate_srcpixel_scaled_distances(const double xc, const double yc, const double sig, double *dists, lensvector<double> **srcpts, const int nsrcpts, const double e1 = 0, const double e2 = 0);
@@ -1148,7 +1149,7 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	friend class ImagePixelGrid;
 	friend struct ImageData;
 	friend struct DerivedParam;
-	friend class LensProfile;
+	friend class LensProfile<double>;
 	friend class SB_Profile;
 	friend class MGE;
 	friend class Cosmology;
@@ -1170,84 +1171,51 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 #endif
 	static void delete_mumps();
 
-	template<typename QScalar>
-	QScalar kappa(const QScalar& x, const QScalar& y, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	QScalar potential(const QScalar&, const QScalar&, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void deflection(const QScalar&, const QScalar&, lensvector<QScalar>&, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void deflection(const QScalar& x, const QScalar& y, QScalar& def_tot_x, QScalar& def_tot_y, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void map_to_lens_plane(const int& redshift_i, const QScalar& x, const QScalar& y, lensvector<QScalar>& xi, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void hessian(const QScalar&, const QScalar&, lensmatrix<QScalar>&, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void hessian_weak(const QScalar&, const QScalar&, lensmatrix<QScalar>&, const int &thread, double* zfacs);
-	template<typename QScalar>
-	void find_sourcept(const lensvector<QScalar>& x, lensvector<QScalar>& srcpt, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void find_sourcept(const lensvector<QScalar>& x, QScalar& srcpt_x, QScalar& srcpt_y, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void kappa_inverse_mag_sourcept(const lensvector<QScalar>& x, lensvector<QScalar>& srcpt, QScalar &kap_tot, QScalar &invmag, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void sourcept_jacobian(const lensvector<QScalar>& xvec, lensvector<QScalar>& srcpt, lensmatrix<QScalar>& jac_tot, const int &thread, double* zfacs, double** betafacs);
+	double kappa(const double& x, const double& y, double* zfacs, double** betafacs);
+	double potential(const double&, const double&, double* zfacs, double** betafacs);
+	void deflection(const double&, const double&, lensvector<double>&, const int &thread, double* zfacs, double** betafacs);
+	void deflection(const double& x, const double& y, double& def_tot_x, double& def_tot_y, const int &thread, double* zfacs, double** betafacs);
+	void map_to_lens_plane(const int& redshift_i, const double& x, const double& y, lensvector<double>& xi, const int &thread, double* zfacs, double** betafacs);
+	void hessian(const double&, const double&, lensmatrix<double>&, const int &thread, double* zfacs, double** betafacs);
+	void hessian_weak(const double&, const double&, lensmatrix<double>&, const int &thread, double* zfacs);
+	void find_sourcept(const lensvector<double>& x, lensvector<double>& srcpt, const int &thread, double* zfacs, double** betafacs);
+	void find_sourcept(const lensvector<double>& x, double& srcpt_x, double& srcpt_y, const int &thread, double* zfacs, double** betafacs);
+	void kappa_inverse_mag_sourcept(const lensvector<double>& x, lensvector<double>& srcpt, double &kap_tot, double &invmag, const int &thread, double* zfacs, double** betafacs);
+	void sourcept_jacobian(const lensvector<double>& xvec, lensvector<double>& srcpt, lensmatrix<double>& jac_tot, const int &thread, double* zfacs, double** betafacs);
 
-	// versions of the above functions that use lensvector<QScalar> for (x,y) coordinates
-	template<typename QScalar>
-	QScalar kappa(const lensvector<QScalar> &x, double* zfacs, double** betafacs) { return kappa<QScalar>(x[0], x[1], zfacs, betafacs); }
-	template<typename QScalar>
-	QScalar potential(const lensvector<QScalar>& x, double* zfacs, double** betafacs) { return potential<QScalar>(x[0],x[1], zfacs, betafacs); }
-	template<typename QScalar>
-	void deflection(const lensvector<QScalar>& x, lensvector<QScalar>& def, double* zfacs, double** betafacs) { deflection<QScalar>(x[0], x[1], def, 0, zfacs, betafacs); }
-	template<typename QScalar>
-	void hessian(const lensvector<QScalar>& x, lensmatrix<QScalar>& hess, double* zfacs, double** betafacs) { hessian<QScalar>(x[0], x[1], hess, 0, zfacs, betafacs); }
+	// versions of the above functions that use lensvector<double> for (x,y) coordinates
+	double kappa(const lensvector<double> &x, double* zfacs, double** betafacs) { return kappa(x[0], x[1], zfacs, betafacs); }
+	double potential(const lensvector<double>& x, double* zfacs, double** betafacs) { return potential(x[0],x[1], zfacs, betafacs); }
+	void deflection(const lensvector<double>& x, lensvector<double>& def, double* zfacs, double** betafacs) { deflection(x[0], x[1], def, 0, zfacs, betafacs); }
+	void hessian(const lensvector<double>& x, lensmatrix<double>& hess, double* zfacs, double** betafacs) { hessian(x[0], x[1], hess, 0, zfacs, betafacs); }
 
-	template<typename QScalar>
-	QScalar inverse_magnification(const lensvector<QScalar>&, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	QScalar magnification(const lensvector<QScalar> &x, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	QScalar shear(const lensvector<QScalar> &x, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void shear(const lensvector<QScalar> &x, QScalar& shear_tot, QScalar& angle, const int &thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void reduced_shear_components(const lensvector<QScalar> &x, QScalar& g1, QScalar& g2, const int &thread, double* zfacs);
+	double inverse_magnification(const lensvector<double>&, const int &thread, double* zfacs, double** betafacs);
+	double magnification(const lensvector<double> &x, const int &thread, double* zfacs, double** betafacs);
+	double shear(const lensvector<double> &x, const int &thread, double* zfacs, double** betafacs);
+	void shear(const lensvector<double> &x, double& shear_tot, double& angle, const int &thread, double* zfacs, double** betafacs);
+	void reduced_shear_components(const lensvector<double> &x, double& g1, double& g2, const int &thread, double* zfacs);
 
 	// non-multithreaded versions
-	//QScalar inverse_magnification(const lensvector<QScalar>& x, double* zfacs) { return inverse_magnification(x,0,zfacs); }
-	//QScalar magnification(const lensvector<QScalar> &x, double* zfacs) { return magnification(x,0,zfacs); }
-	//QScalar shear(const lensvector<QScalar> &x, double* zfacs) { return shear(x,0,zfacs); }
-	//void shear(const lensvector<QScalar> &x, QScalar& shear_tot, QScalar& angle, double* zfacs) { return shear(x,shear_tot,angle,0,zfacs); }
+	//double inverse_magnification(const lensvector<double>& x, double* zfacs) { return inverse_magnification(x,0,zfacs); }
+	//double magnification(const lensvector<double> &x, double* zfacs) { return magnification(x,0,zfacs); }
+	//double shear(const lensvector<double> &x, double* zfacs) { return shear(x,0,zfacs); }
+	//void shear(const lensvector<double> &x, double& shear_tot, double& angle, double* zfacs) { return shear(x,shear_tot,angle,0,zfacs); }
 
-	template<typename QScalar>
-	void hessian_exclude(const QScalar& x, const QScalar& y, bool* exclude, lensmatrix<QScalar>& hess_tot, const int& thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	QScalar magnification_exclude(const lensvector<QScalar> &x, bool* exclude, const int& thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	QScalar inverse_magnification_exclude(const lensvector<QScalar> &x, bool* exclude, const int& thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	QScalar shear_exclude(const lensvector<QScalar> &x, bool* exclude, const int& thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void shear_exclude(const lensvector<QScalar> &x, QScalar& shear, QScalar& angle, bool* exclude, const int& thread, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	QScalar kappa_exclude(const lensvector<QScalar> &x, bool* exclude, double* zfacs, double** betafacs);
-	template<typename QScalar>
-	void deflection_exclude(const QScalar& x, const QScalar& y, bool* exclude, QScalar& def_tot_x, QScalar& def_tot_y, const int &thread, double* zfacs, double** betafacs);
+	void hessian_exclude(const double& x, const double& y, bool* exclude, lensmatrix<double>& hess_tot, const int& thread, double* zfacs, double** betafacs);
+	double magnification_exclude(const lensvector<double> &x, bool* exclude, const int& thread, double* zfacs, double** betafacs);
+	double inverse_magnification_exclude(const lensvector<double> &x, bool* exclude, const int& thread, double* zfacs, double** betafacs);
+	double shear_exclude(const lensvector<double> &x, bool* exclude, const int& thread, double* zfacs, double** betafacs);
+	void shear_exclude(const lensvector<double> &x, double& shear, double& angle, bool* exclude, const int& thread, double* zfacs, double** betafacs);
+	double kappa_exclude(const lensvector<double> &x, bool* exclude, double* zfacs, double** betafacs);
+	void deflection_exclude(const double& x, const double& y, bool* exclude, double& def_tot_x, double& def_tot_y, const int &thread, double* zfacs, double** betafacs);
 
 	// non-multithreaded versions
-	template<typename QScalar>
-	void hessian_exclude(const QScalar& x, const QScalar& y, bool* exclude, lensmatrix<QScalar>& hess_tot, double* zfacs, double** betafacs) { hessian_exclude<QScalar>(x,y,exclude,hess_tot,0,zfacs,betafacs); }
-	template<typename QScalar>
-	QScalar magnification_exclude(const lensvector<QScalar> &x, bool* exclude, double* zfacs, double** betafacs) { return magnification_exclude<QScalar>(x,exclude,0,zfacs,betafacs); }
-	template<typename QScalar>
-	QScalar inverse_magnification_exclude(const lensvector<QScalar> &x, bool* exclude, double* zfacs, double** betafacs) { return inverse_magnification_exclude<QScalar>(x,exclude,0,zfacs,betafacs); }
-	template<typename QScalar>
-	QScalar shear_exclude(const lensvector<QScalar> &x, bool* exclude, double* zfacs, double** betafacs) { return shear_exclude<QScalar>(x,exclude,0,zfacs,betafacs); }
-	template<typename QScalar>
-	void shear_exclude(const lensvector<QScalar> &x, QScalar &shear, QScalar &angle, bool* exclude, double* zfacs, double** betafacs) { shear_exclude<QScalar>(x,shear,angle,exclude,0,zfacs,betafacs); }
-	template<typename QScalar>
-	void deflection_exclude(const lensvector<QScalar>& x, bool* exclude, lensvector<QScalar>& def, double* zfacs, double** betafacs) { deflection_exclude<QScalar>(x[0], x[1], exclude, def[0], def[1], 0, zfacs, betafacs); }
+	void hessian_exclude(const double& x, const double& y, bool* exclude, lensmatrix<double>& hess_tot, double* zfacs, double** betafacs) { hessian_exclude(x,y,exclude,hess_tot,0,zfacs,betafacs); }
+	double magnification_exclude(const lensvector<double> &x, bool* exclude, double* zfacs, double** betafacs) { return magnification_exclude(x,exclude,0,zfacs,betafacs); }
+	double inverse_magnification_exclude(const lensvector<double> &x, bool* exclude, double* zfacs, double** betafacs) { return inverse_magnification_exclude(x,exclude,0,zfacs,betafacs); }
+	double shear_exclude(const lensvector<double> &x, bool* exclude, double* zfacs, double** betafacs) { return shear_exclude(x,exclude,0,zfacs,betafacs); }
+	void shear_exclude(const lensvector<double> &x, double &shear, double &angle, bool* exclude, double* zfacs, double** betafacs) { shear_exclude(x,shear,angle,exclude,0,zfacs,betafacs); }
+	void deflection_exclude(const lensvector<double>& x, bool* exclude, lensvector<double>& def, double* zfacs, double** betafacs) { deflection_exclude(x[0], x[1], exclude, def[0], def[1], 0, zfacs, betafacs); }
 
 	void record_singular_points(double *zfacs);
 
@@ -1318,8 +1286,7 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	bool get_fit_imagesets(int min_dataset = 0, int max_dataset = -1, bool verbal = true); // defined in imgsrch.cpp
 
 	bool plot_images(const char *sourcefile, const char *imagefile, bool color_multiplicities, bool verbal);
-	template<typename QScalar>
-	void lens_equation(const lensvector<QScalar>&, lensvector<QScalar>&, const int& thread, double *zfacs, double **betafacs); // Used by Newton's method to find images
+	void lens_equation(const lensvector<double>&, lensvector<double>&, const int& thread, double *zfacs, double **betafacs); // Used by Newton's method to find images
 
 	// the remaining functions in this class are all contained in lens.cpp
 	void create_and_add_lens(LensProfileName, const int emode, const double zl, const double zs, const double mass_parameter, const double logslope_param, const double scale, const double core, const double q, const double theta, const double xc, const double yc, const double extra_param1 = -1000, const double extra_param2 = -1000, const int parameter_mode = 0);
@@ -1335,7 +1302,7 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	void add_qtabulated_lens(const double zl, const double zs, int lnum, const double kscale, const double rscale, const double q, const double theta, const double xc, const double yc);
 	bool spawn_lens_from_source_object(const int src_number, const double zl, const double zs, const int pmode, const bool vary_mass_parameter, const bool include_limits, const double mass_param_lower, const double mass_param_upper);
 
-	void add_lens(LensProfile *new_lens);
+	void add_lens(LensProfile<double> *new_lens);
 	void add_new_lens_redshift(const double zl, const int lens_i, int* zlens_idx);
 	void remove_old_lens_redshift(const int znum, const int lens_i, const bool removed_lens);
 	void update_lens_redshift_data();
@@ -1426,7 +1393,7 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	void reassign_lensparam_pointers_and_names(const bool reset_plimits = true);
 	void reassign_sb_param_pointers_and_names();
 	void print_lens_list(bool show_vary_params);
-	LensProfile* get_lens_pointer(const int lensnum) { if (lensnum >= nlens) return NULL; else return lens_list[lensnum]; }
+	LensProfile<double>* get_lens_pointer(const int lensnum) { if (lensnum >= nlens) return NULL; else return lens_list[lensnum]; }
 	void print_fit_model();
 	void print_lens_cosmology_info(const int lmin, const int lmax);
 	bool output_mass_r(const double r_arcsec, const int lensnum, const bool use_kpc);
@@ -1549,8 +1516,7 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	bool initialize_fitmodel(const bool running_fit_in);
 	double update_model(const double* params);
 	void update_prior_limits(const double* lower, const double* upper, const bool* changed_limits);
-	template<typename QScalar>
-	QScalar fitmodel_loglike_point_source(const double* params);
+	double fitmodel_loglike_point_source(const double* params);
 	double fitmodel_loglike_extended_source(const double* params);
 	double fitmodel_custom_prior();
 	double LogLikeFunc(double *params) { return (this->*LogLikePtr)(params); }
@@ -1605,7 +1571,6 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	double get_xi_parameter(const double src_redshift, const int lensnum);
 	double get_total_xi_parameter(const double src_redshift);
 	double cc_xi_parameter(int cc_num=-1);
-	bool find_tangential_critical_curve(int &cc_num);
 	double get_xi_phi_parameter(const double phi, int cc_num=-1);
 	bool *centered;
 	double einstein_radius_of_primary_lens(const double zfac, double& reav);
@@ -1614,31 +1579,19 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	void plot_mass_profile(double rmin, double rmax, int steps, const char *massname);
 	void print_lensing_info_at_point(const double x, const double y);
 
-	template<typename QScalar>
-	QScalar chisq_pos_source_plane();
-	template<typename QScalar>
-	QScalar chisq_pos_image_plane();
-	template<typename QScalar>
-	QScalar chisq_pos_image_plane_diagnostic(const bool verbose, const bool output_residuals_to_file, double& rms_imgpos_err, int& n_matched_images, const string output_filename = "fit_chivals.dat");
+	double chisq_pos_source_plane();
+	double chisq_pos_image_plane();
+	double chisq_pos_image_plane_diagnostic(const bool verbose, const bool output_residuals_to_file, double& rms_imgpos_err, int& n_matched_images, const string output_filename = "fit_chivals.dat");
 
-	template<typename QScalar>
-	QScalar chisq_flux();
-	template<typename QScalar>
-	QScalar chisq_time_delays();
-	template<typename QScalar>
-	QScalar chisq_time_delays_from_model_imgs();
-	template<typename QScalar>
-	QScalar chisq_weak_lensing();
-	template<typename QScalar>
-	void find_analytic_srcflux(QScalar *bestfit_flux);
-	template<typename QScalar>
-	void find_analytic_srcpos(lensvector<QScalar> *beta_i);
-	template<typename QScalar>
-	void set_analytic_sourcepts(const bool verbal = false);
-	template<typename QScalar>
-	void set_analytic_srcflux(const bool verbal = false);
-
+	double chisq_flux();
+	double chisq_time_delays();
+	double chisq_time_delays_from_model_imgs();
+	double chisq_weak_lensing();
 	bool output_weak_lensing_chivals(string filename);
+	void find_analytic_srcflux(double *bestfit_flux);
+	void find_analytic_srcpos(lensvector<double> *beta_i);
+	void set_analytic_sourcepts(const bool verbal = false);
+	void set_analytic_srcflux(const bool verbal = false);
 	double get_avg_ptsrc_dist(const int ptsrc_i);
 
 	//static bool respline_at_end;
@@ -1659,10 +1612,11 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 	void autogrid(double rmin, double rmax);
 	void autogrid();
 	bool get_deflection_spline_info(double &xmax, double &ymax, int &nsteps);
+	void set_Gauss_NN(const int& nn);
 	void set_integral_tolerance(const double& acc);
 	void set_integral_convergence_warnings(const bool warn);
 
-	void set_integration_method(IntegrationMethod method) { LensProfile::integral_method = method; }
+	void set_integration_method(IntegrationMethod method) { LensProfile<double>::integral_method = method; }
 	void set_analytic_bestfit_src(const bool setting) {
 		use_analytic_bestfit_src = setting;
 		bool vary_source_coords = (use_analytic_bestfit_src) ? false : true;
@@ -1773,8 +1727,8 @@ class QLens : public ModelParams, public UCMC, private Brent, private Sort, priv
 #ifndef USE_EIGEN
 		if (fitmethod_in==BFGS) {
 			warn("cannot set fit method to 'bfgs' unless qlens is compiled with the Eigen library");
-			return false;
 		}
+		return false;
 #endif
 		fitmethod = fitmethod_in;
 		if ((fitmethod==POWELL) or (fitmethod==SIMPLEX)) {
@@ -1819,19 +1773,19 @@ class LensList
 	public:
 	QLens* qlens;
 	int nlens;
-	LensProfile** lenslistptr;
+	LensProfile<double>** lenslistptr;
 	LensList(QLens* qlens_in) { lenslistptr = NULL; qlens = qlens_in; nlens = 0; }
-	void input_ptr(LensProfile** ptr_in, const int nlens_in) { lenslistptr = ptr_in; nlens = nlens_in; }
+	void input_ptr(LensProfile<double>** ptr_in, const int nlens_in) { lenslistptr = ptr_in; nlens = nlens_in; }
 	void clear_ptr() { lenslistptr = NULL; nlens = 0; }
 	void print() {
 		qlens->print_lens_list(true);
 	}
-	void add_lens(LensProfile* lens_in) {
+	void add_lens(LensProfile<double>* lens_in) {
 		qlens->add_lens(lens_in);
 	}
-	void add_lens_extshear(LensProfile* lens_in, Shear* extshear) {
+	void add_lens_extshear(LensProfile<double>* lens_in, Shear* extshear) {
 		qlens->add_lens(lens_in);
-		qlens->add_lens((LensProfile*) extshear);
+		qlens->add_lens((LensProfile<double>*) extshear);
 		  lenslistptr[nlens-1]->anchor_center_to_lens(nlens-2);
 	}
 	bool clear(const int min_loc=-1, const int max_loc=-1) {
@@ -1856,13 +1810,13 @@ class LensList
 		lenslistptr[lens_num1]->anchor_center_to_lens(lens_num2);
 		return true;
 	}
-	MyIterator<LensProfile*> begin() {
-		return MyIterator<LensProfile*>(lenslistptr);
+	MyIterator<LensProfile<double>*> begin() {
+		return MyIterator<LensProfile<double>*>(lenslistptr);
 	}
-	MyIterator<LensProfile*> end() {
-		return MyIterator<LensProfile*>(lenslistptr+nlens);
+	MyIterator<LensProfile<double>*> end() {
+		return MyIterator<LensProfile<double>*>(lenslistptr+nlens);
 	}
-	LensProfile* operator[](size_t i) { return lenslistptr[i]; }
+	LensProfile<double>* operator[](size_t i) { return lenslistptr[i]; }
 };
 
 class SourceList

@@ -301,7 +301,6 @@ double Spline::extend_inner_line(const double& x)
 	return yval;
 }
 
-/*
 void Spline::print(double min, double max, long steps)
 {
 	double x, xstep;
@@ -383,7 +382,6 @@ void Spline::dlogprintall(long steps)
 	for (i = 0, x = xarray[0]; i <= steps; i++, x *= xstep)
 		printf("%le\t%le\n", x, dsplint(x));
 }
-*/
 
 // Spline2D: 2-dimensional bicubic spline
 
@@ -678,7 +676,6 @@ void Spline2D::output(const char *xyfilename, const char *zfilename)
 	fclose(zfile);
 }
 
-/*
 void Spline2D::print(double x_min, double x_max, long xsteps, double y_min, double y_max, long ysteps)
 {
 	double x, xstep, y, ystep;
@@ -722,7 +719,6 @@ void Spline2D::logprintall(long xsteps, long ysteps)
 		for (j = 0, y = yarray[0]; j <= ysteps; j++, y *= ystep)
 			printf("%le\t%le\t%le\n", x, y, splint(x,y));
 }
-*/
 
 void Spline2D::spline(void)
 {

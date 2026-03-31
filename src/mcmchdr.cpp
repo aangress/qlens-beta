@@ -8,7 +8,7 @@
 #include <exception>
 #include <csignal>
 #include <string>
-#include "mathfuncs.h"
+#include "GregsMathHdr.h"
 #include "mcmchdr.h"
 #include "random.h"
 #include "errors.h"
@@ -59,7 +59,7 @@ class CovPoints
 		}
 };
 
-UCMC::UCMC() : Derivative(1.0e-6, 10)
+UCMC::UCMC() : Minimize(1.0e-6, 1000), LevenMarq(0.001, 3), Derivative(1.0e-6, 10)
 {
 	rand = 100;
 	cvar = NULL;
@@ -607,7 +607,7 @@ inline double PDFRatio(double **cov, double **cov0, double *a, double *a0, const
 
 inline void TakeCov(double **a, const int dim, const int N, double **cov)
 {
-	double* avg = new double[dim];
+	double avg[dim];
 	int t, i, j, k, l;
 	
 	for (i = 0; i < dim; i++)
@@ -641,7 +641,6 @@ inline void TakeCov(double **a, const int dim, const int N, double **cov)
 			cov[k][l] = cov[k][l]/N - avg[k]*avg[l];
 		}
 	}
-	delete[] avg;
 }
 
 void UCMC::MetHasAdapt(const char *name, const double tol, const int Threads, const int cut, double *best_fit_params, const char flag)
@@ -652,10 +651,10 @@ void UCMC::MetHasAdapt(const char *name, const double tol, const int Threads, co
 	double **a0 = matrix <double> (NThreads, ma);
 	double ans, chisqnext;
 	int mult = 1;
-	//int totN = new int[NThreads];
+	int totN[NThreads];
 	int count = 0, totall = 0;
 	int i, j, l, k, t;
-	MultiNormDev **gDev = new MultiNormDev*[NThreads];
+	MultiNormDev *gDev[NThreads];
 	
 	double **coVar = matrix <double> (ma, ma), **coVarNext = matrix <double> (ma, ma);
 	double *avg = matrix <double> (ma);
@@ -668,7 +667,7 @@ void UCMC::MetHasAdapt(const char *name, const double tol, const int Threads, co
 	double *avgTot = matrix <double> (ma, 0.0);
 	int *total = new int[NThreads];
 	bool cont;
-	//bool contin[NThreads];
+	bool contin[NThreads];
 	ofstream *out = new ofstream[NThreads];
 	double minchisq = 1e30;
 	double Bn, R, Ravg;
@@ -688,7 +687,7 @@ void UCMC::MetHasAdapt(const char *name, const double tol, const int Threads, co
 
 	for (t = 0; t < NThreads; t++)
 	{
-		//totN[t] = 0;
+		totN[t] = 0;
 		do for (j = 0; j < ma; j++)
 			aNext[t][j] = a0[t][j] = lowerLimits_initial[j] + (gDev[0]->Doub())*(upperLimits_initial[j] - lowerLimits_initial[j]);
 		while (0.0*LOGLIKE(a0[t]));
@@ -795,7 +794,6 @@ void UCMC::MetHasAdapt(const char *name, const double tol, const int Threads, co
 	while(cont || count < NThreads*2e4);
 
 	delete[] out;
-	delete[] gDev;
 	del <double> (aNext, NThreads);
 	del <double> (a0, NThreads);
 	del <double> (covT, NThreads);
@@ -1519,6 +1517,26 @@ void UCMC::SlicingFull(const char *name, const int N)
 	del <double> (r);
 }
 
+void UCMC::FindMinLM()
+{
+	LMFindMin(a, ma, static_cast <double (LevenMarq::*)(double *, double *, double **)> (&UCMC::FindCof));
+}
+
+void UCMC::FindMin()
+{
+	Frprmn(a, ma, static_cast <double (Minimize::*)(double *)> (&UCMC::Chi2), static_cast <void (Minimize::*)(double *, double *)> (&UCMC::CalcDir));
+}
+
+void UCMC::FindMinPow()
+{
+	double **nd = matrix <double> (ma, ma, 0.0);
+	for (int i = 0; i < ma; i++)
+		nd[i][i] = 1.0;
+	
+	Powell(a, ma, nd, static_cast <double (Minimize::*)(double *)> (&UCMC::Chi2));
+	del <double> (nd, ma);
+}
+
 double UCMC::GridSearch(int iin)
 {
 	double chi2h, chi2l, chi2last, chi2, stepsize;
@@ -1606,6 +1624,95 @@ UCMC::~UCMC()
 	if (dparam_list != NULL) delete[] dparam_list;
 }
 
+class Fit : private Minimize, private LevenMarq
+{
+	private:
+		double *data;
+		int N;
+		int jMax;
+		double a;
+		double param[3];
+		double (Minimize::*cPtr)(double *);
+		void (Minimize::*dCPtr)(double *, double *);
+		double (LevenMarq::*lMPtr)(double *, double *, double **);
+		
+	public:
+		Fit(double *datain, const int Nin) : Minimize(1.0e-9, 1000), LevenMarq(0.0001, 5), N(Nin), jMax(Nin)
+		{
+			data = new double[N];
+			for (int i = 0; i < N; i++)
+				data[i] = datain[i];
+			cPtr = static_cast <double (Minimize::*)(double *)> (&Fit::Chi2);
+			dCPtr = static_cast <void (Minimize::*)(double *, double *)> (&Fit::DChi2);
+			lMPtr = static_cast <double (LevenMarq::*)(double *, double *, double **)> (&Fit::Cof);
+			param[0] = log(100.0);
+			param[1] = log(0.1);
+			param[2] = 2.0;
+		}
+		double Chi2(double *params)
+		{
+			double temp = 0.0;
+			for (int i = 0; i < jMax; i++)
+			{
+				temp += pow(log(data[i]*(pow(PI*(i+1)/(N+1)/exp(params[1]), params[2]) + 1.0)) - params[0], 2.0);
+			}
+			return temp;
+		}
+		void DChi2(double *params, double *dirs)
+		{
+			double temp = 0.0;
+			double k;
+			dirs[0] = dirs[1] = dirs[2] = 0.0;
+			
+			for (int i = 0; i < jMax; i++)
+			{
+				k = pow(PI*(i+1)/(N+1)/exp(params[1]), params[2]);
+				temp = -2.0*(log(data[i]*(k + 1.0)) - params[0]);
+				dirs[0] += temp;
+				dirs[1] += k*temp*params[2]/(k + 1.0);
+				dirs[2] += k ? -k*temp*log(k)/params[2]/(k + 1.0): 0.0;
+			}
+			return;
+		}
+		double Cof(double *params, double *beta, double **alpha)
+		{
+			double dirs[3];
+			double ki;
+			double chi2 = 0.0;
+			double temp;
+			int i, j, k;
+			for (i = 0; i < jMax; i++)
+			{
+				ki = pow(PI*(i+1)/(N+1)/exp(params[1]), params[2]);
+				temp = (log(data[i]*(ki + 1.0)) - params[0]);
+				chi2 += pow(temp, 2.0);
+				dirs[0] = 1.0;
+				dirs[1] = ki*params[2]/(ki + 1.0);
+				dirs[2] = ki ? -ki*log(ki)/params[2]/(ki + 1.0) : 0.0;
+				for (j = 0; j < 3; j++)
+				{
+					beta[j] += temp*dirs[j];
+					for (k = 0; k < 3; k++)
+					{
+						alpha[j][k] += dirs[j]*dirs[k];
+					}
+				}
+			}
+			return chi2;
+		}
+		void FindMins()
+		{
+			LMFindMin(param, 3, lMPtr);
+		}
+		double R(){return exp(param[0])/(N+1.0)/2.0;}
+		double JStar(){return exp(param[1])*(N+1)/PI;}
+		double Output(const double kin){return exp(param[0])/(1.0 + pow(kin/exp(param[1]), param[2]));}
+		~Fit()
+		{
+			delete[] data;
+		}
+};
+
 inline double dummy(const double x){return x;}
 inline double pow10(const double x){return pow(10.0, x);}
 inline double pow102(const double x){return pow(10.0, x/2.0);}
@@ -1645,7 +1752,7 @@ class Group : public Cholesky
 		llimit = new double[dimR];
 		double *ptr1 = NULL;
 		double **temp = pointsin;
-		factor = pow(M_PI, dim/2.0)/Gamma(dim/2.0+1.0);
+		factor = pow(PI, dim/2.0)/Gamma(dim/2.0+1.0);
 		//cout << " N = " << N << "   " << dim << flush;
 		area = 1.0;
 		
@@ -1714,7 +1821,7 @@ class Group : public Cholesky
 		dim--;
 		covar = matrix <double> (dim, dim, 0.0);
 		avg = matrix <double> (dim, 0.0);
-		factor = pow(M_PI, dim/2.0)/Gamma(dim/2.0+1.0);
+		factor = pow(PI, dim/2.0)/Gamma(dim/2.0+1.0);
 		
 		for (j = 0, i = 0; j < dim; j++, i++)
 		{
@@ -1831,10 +1938,9 @@ class Group : public Cholesky
 		}
 	}
 	
-	/*
 	double CorrLimits()
 	{
-		double factor2 = pow(M_PI, (dim-1.0)/2.0)/Gamma((dim+1.0)/2.0);
+		double factor2 = pow(PI, (dim-1.0)/2.0)/Gamma((dim+1.0)/2.0);
 		double corr = 0.0;
 		
 		for (int i = 0; i < dim; i++)
@@ -1862,9 +1968,7 @@ class Group : public Cholesky
 		//volume -= factor2*pow(x0, dim)*DetSqrt()*corr;
 		return factor2*corr;
 	}
-	*/
 	
-	/*
 	double CorrVolume()
 	{
 		bool corr = false;
@@ -1901,7 +2005,6 @@ class Group : public Cholesky
 		else
 			return 1.0;
 	}
-	*/
 	
 	void Random(double *ptr)
 	{
@@ -2053,7 +2156,7 @@ class Group : public Cholesky
 // 			double *avgt = matrix <double> (dim, 0.0);
 		double *ptr1 = NULL;
 		double **temp = points;
-// 			factor = pow(M_PI, dim/2.0)/Gamma(dim/2.0+1.0);
+// 			factor = pow(PI, dim/2.0)/Gamma(dim/2.0+1.0);
 		N = NTemp;
 		for (i = 0; i < dim; i++)
 		{
@@ -2100,9 +2203,13 @@ class Group : public Cholesky
 	}
 	
 	double F(){return volume/X0;}
+	
 	double FCorr(){return volumeCorr/X0;}
+	
 	double Volume(){return volume;}
+	
 	double VolumeCorr(){return volumeCorr;}
+	
 	double h(double *u){return volume*Square(u, avg, map)/x0/x0/X0;}
 	
 	bool IsBad(){return isbad;}
@@ -2615,7 +2722,7 @@ class Points : public Group
 		void GetPoint(double *ptr)
 		{
 			Points *pointptr;
-			double* tempptr = new double[dim];
+			double tempptr[dim];
 			do
 			{
 				pointptr = this;
@@ -2642,7 +2749,6 @@ class Points : public Group
 				}
 			}
 			while (1.0/double(this->Member(ptr)) < random->Doub());
-			delete[] tempptr;
 		}
 		
 		void GetPoint2(double *ptr)

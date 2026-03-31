@@ -3,7 +3,7 @@
 #include <iostream>
 #include <cstdio>
 #include <cmath>
-#include "mathfuncs.h"
+#include "GregsMathHdr.h"
 #include <vector>
 
 template<class T>
@@ -531,7 +531,7 @@ class AdvanceDevs : public BasicDevs, public Cholesky
 			int i;
 			double dist = 0.0;
 
-			double *vec = new double[num];
+			double vec[num];
 			double norm = 0.0;
 			for (i = 0; i < num; i++)
 			{
@@ -560,7 +560,6 @@ class AdvanceDevs : public BasicDevs, public Cholesky
 				pin[i] = fac*dist*pin[i]/norm + p0[i];
 			}
 
-			delete[] vec;
 			return;
 		}
 		
@@ -569,7 +568,7 @@ class AdvanceDevs : public BasicDevs, public Cholesky
 			int i;
 			double dist = 0.0;
 			
-			double *vec = new double[num];
+			double vec[num];
 			double norm = 0.0;
 			for (i = 0; i < num; i++)
 			{
@@ -586,7 +585,6 @@ class AdvanceDevs : public BasicDevs, public Cholesky
 				pin[i] = fin*dist*pin[i] + p0[i];
 			}
 
-			delete[] vec;
 			return;
 		}
 		
@@ -595,7 +593,7 @@ class AdvanceDevs : public BasicDevs, public Cholesky
 			int i;
 			double dist = 0.0;
 
-			double *vec = new double[num];
+			double vec[num];
 			double norm = 0.0;
 			for (i = 0; i < num; i++)
 			{
@@ -613,7 +611,6 @@ class AdvanceDevs : public BasicDevs, public Cholesky
 				pin[i] = fin*dist*pin[i] + p0[i];
 			}
 
-			delete[] vec;
 			return;
 		}
 };
@@ -900,7 +897,7 @@ class RandomBasis : public BasicDevs
 		void RandRot()
 		{
 			double temp;
-			double *vec = new double[num];
+			double vec[num];
 			int i, j, k;
 				
 			for (i = 0; i < num; i++)
